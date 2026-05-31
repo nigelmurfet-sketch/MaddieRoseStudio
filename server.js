@@ -2,7 +2,8 @@ import express from 'express';
 import cors from 'cors';
 import nodemailer from 'nodemailer';
 import dotenv from 'dotenv';
-import fs from 'fs/promises';
+import fs from 'fs';
+import fsPromises from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -13,6 +14,34 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const port = process.env.SERVER_PORT || 4000;
 const configFilePath = path.join(__dirname, 'site-config.json');
+const dataDir = path.join(__dirname, 'data');
+const enquiriesFilePath = process.env.ENQUIRIES_DB_PATH || path.join(dataDir, 'enquiries.json');
+
+const ensureEnquiriesFile = () => {
+  if (!fs.existsSync(dataDir)) {
+    fs.mkdirSync(dataDir, { recursive: true });
+  }
+
+  if (!fs.existsSync(enquiriesFilePath)) {
+    fs.writeFileSync(enquiriesFilePath, '[]', 'utf-8');
+  }
+};
+
+const readEnquiries = async () => {
+  try {
+    const content = await fsPromises.readFile(enquiriesFilePath, 'utf-8');
+    return JSON.parse(content || '[]');
+  } catch (error) {
+    console.error('Failed to read enquiries file:', error);
+    return [];
+  }
+};
+
+const saveEnquiries = async (enquiries) => {
+  await fsPromises.writeFile(enquiriesFilePath, JSON.stringify(enquiries, null, 2));
+};
+
+ensureEnquiriesFile();
 
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
@@ -119,15 +148,22 @@ if (!process.env.EMAIL_HOST || !process.env.EMAIL_USER || !process.env.EMAIL_PAS
   console.warn('Warning: EMAIL_HOST, EMAIL_USER, and EMAIL_PASS must be set to send email.');
 }
 
-const transporter = nodemailer.createTransport({
-  host: process.env.EMAIL_HOST,
-  port: parseInt(process.env.EMAIL_PORT || '587', 10),
-  secure: process.env.EMAIL_SECURE === 'true',
+const transporterConfig = {
   auth: {
     user: process.env.EMAIL_USER,
     pass: process.env.EMAIL_PASS,
   },
-});
+};
+
+if (process.env.EMAIL_SERVICE) {
+  transporterConfig.service = process.env.EMAIL_SERVICE;
+} else {
+  transporterConfig.host = process.env.EMAIL_HOST;
+  transporterConfig.port = parseInt(process.env.EMAIL_PORT || '587', 10);
+  transporterConfig.secure = process.env.EMAIL_SECURE === 'true';
+}
+
+const transporter = nodemailer.createTransport(transporterConfig);
 
 app.post('/api/send-email', async (req, res) => {
   try {
@@ -150,6 +186,90 @@ app.post('/api/send-email', async (req, res) => {
   } catch (error) {
     console.error('Email send error:', error);
     res.status(500).json({ ok: false, error: 'Email service error.' });
+  }
+});
+
+// Inquiry endpoint: called when a visitor submits the contact form
+app.post('/api/inquiry', async (req, res) => {
+  try {
+    const { name, email, message } = req.body;
+    if (!email || !message) return res.status(400).json({ ok: false, error: 'Missing required fields.' });
+
+    const inquiry = {
+      name: name || null,
+      email,
+      message,
+      createdAt: new Date().toISOString(),
+    };
+
+    const enquiries = await readEnquiries();
+    enquiries.unshift(inquiry);
+    await saveEnquiries(enquiries);
+
+    // Notify studio
+    const studioMail = {
+      from: process.env.EMAIL_FROM || process.env.EMAIL_USER,
+      to: process.env.STUDIO_EMAIL || process.env.EMAIL_USER,
+      subject: `New website inquiry from ${name || 'visitor'}`,
+      text: `Name: ${name || '—'}\nEmail: ${email}\n\nMessage:\n${message}`,
+    };
+
+    // Auto-reply to client
+    const clientMail = {
+      from: process.env.EMAIL_FROM || process.env.EMAIL_USER,
+      to: email,
+      subject: `Thanks for contacting Maddie Rose Studio`,
+      text: `Hi ${name || 'there'},\n\nThanks for getting in touch — we received your message and will be in contact shortly.\n\nBest,\nMaddie Rose Studio`,
+    };
+
+    await transporter.sendMail(studioMail);
+    await transporter.sendMail(clientMail);
+
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('Inquiry email error:', error);
+    res.status(500).json({ ok: false, error: 'Inquiry email failed.' });
+  }
+});
+
+app.get('/api/enquiries', async (req, res) => {
+  try {
+    const enquiries = await readEnquiries();
+    res.json({ ok: true, enquiries });
+  } catch (error) {
+    console.error('Enquiries read error:', error);
+    res.status(500).json({ ok: false, error: 'Could not read enquiries.' });
+  }
+});
+
+// Gallery-ready notification: admin triggers this to notify a client their gallery is ready
+app.post('/api/notify-gallery', async (req, res) => {
+  try {
+    const { email, galleryLink, galleryName } = req.body;
+    if (!email || !galleryLink) return res.status(400).json({ ok: false, error: 'Missing required fields.' });
+
+    const mail = {
+      from: process.env.EMAIL_FROM || process.env.EMAIL_USER,
+      to: email,
+      subject: `Your gallery${galleryName ? `: ${galleryName}` : ''} is ready to download` ,
+      text: `Hi,\n\nYour gallery${galleryName ? ` (${galleryName})` : ''} is ready. You can view and download it here:\n\n${galleryLink}\n\nIf you have any questions, reply to this email.`,
+    };
+
+    // Notify studio/admin as a record
+    const adminNotify = {
+      from: process.env.EMAIL_FROM || process.env.EMAIL_USER,
+      to: process.env.STUDIO_EMAIL || process.env.EMAIL_USER,
+      subject: `Sent gallery-ready notification to ${email}`,
+      text: `Gallery: ${galleryName || '—'}\nRecipient: ${email}\nLink: ${galleryLink}`,
+    };
+
+    await transporter.sendMail(mail);
+    await transporter.sendMail(adminNotify);
+
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('Gallery notify error:', error);
+    res.status(500).json({ ok: false, error: 'Gallery notification failed.' });
   }
 });
 
