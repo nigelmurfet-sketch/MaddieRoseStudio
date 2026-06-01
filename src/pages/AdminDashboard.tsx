@@ -219,6 +219,53 @@ const AdminDashboard = () => {
     };
   });
 
+  const [imageUrlInputs, setImageUrlInputs] = useState<Record<string, string>>({});
+
+  const isValidImageUrl = (url: string) => {
+    try {
+      const parsed = new URL(url);
+      return /\.(jpe?g|png|webp|gif|avif|svg)$/i.test(parsed.pathname);
+    } catch {
+      return false;
+    }
+  };
+
+  const saveImageUrl = async (type: 'gallery' | 'background', category: string) => {
+    const key = `${type}-${category}`;
+    const url = (imageUrlInputs[key] || '').trim();
+    if (!url) {
+      alert('Please paste a valid image URL before saving.');
+      return;
+    }
+
+    if (!isValidImageUrl(url)) {
+      alert('Please enter a valid image URL ending in .jpg, .png, .webp, or similar.');
+      return;
+    }
+
+    try {
+      if (type === 'gallery') {
+        const currentCount = (galleryImages[category] || []).length;
+        if (currentCount >= 20) {
+          alert('Gallery is full. Each gallery can have a maximum of 20 photos.');
+          return;
+        }
+        const updated = { ...galleryImages, [category]: [...(galleryImages[category] || []), url] };
+        setGalleryImages(updated);
+        localStorage.setItem('siteGalleries', JSON.stringify(updated));
+        await syncConfig({ galleryImages: updated });
+      } else {
+        const updated = { ...backgroundImages, [category]: url };
+        setBackgroundImages(updated);
+        localStorage.setItem('siteBackgrounds', JSON.stringify(updated));
+        await syncConfig({ backgroundImages: updated });
+      }
+      setImageUrlInputs(prev => ({ ...prev, [key]: '' }));
+    } catch (err) {
+      alert('Could not save the image URL. Please try again or use a different link.');
+    }
+  };
+
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement> | React.DragEvent, type: 'gallery' | 'background', category: string) => {
     let file: File | undefined;
     
@@ -270,6 +317,10 @@ const AdminDashboard = () => {
     setGalleryImages(updated);
     localStorage.setItem('siteGalleries', JSON.stringify(updated));
     await syncConfig({ galleryImages: updated });
+  };
+
+  const handleImageUrlInputChange = (key: string, value: string) => {
+    setImageUrlInputs(prev => ({ ...prev, [key]: value }));
   };
 
   useEffect(() => {
@@ -407,9 +458,9 @@ const AdminDashboard = () => {
         </div>
 
         {/* Header */}
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-end mb-12 gap-6">
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-end mb-12 gap-6 min-w-0">
           <div>
-            <div className="flex items-center space-x-3 mb-4">
+            <div className="flex items-center space-x-3 mb-4 flex-wrap gap-3">
               <div className="w-10 h-10 bg-stone-900 rounded-lg flex items-center justify-center">
                 <Camera className="text-white h-5 w-5" />
               </div>
@@ -456,7 +507,7 @@ const AdminDashboard = () => {
             <motion.div key="log" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}>
               <div className="bg-white rounded-2xl md:rounded-3xl border border-stone-200 overflow-hidden shadow-sm">
                 <div className="overflow-x-auto">
-                  <table className="w-full text-left min-w-[600px] md:min-w-full">
+                  <table className="w-full text-left min-w-full table-auto">
                     <thead>
                       <tr className="border-b border-stone-100 bg-stone-50/50">
                         <th className="p-4 md:p-6 text-[10px] uppercase tracking-widest text-stone-400">Type</th>
@@ -474,7 +525,7 @@ const AdminDashboard = () => {
                           </td>
                           <td className="p-4 md:p-6">
                             <p className="text-stone-900 font-medium text-sm">{log.name}</p>
-                            <p className="text-[10px] md:text-xs text-stone-400 truncate max-w-[100px] md:max-w-none">{log.email}</p>
+                            <p className="text-[10px] md:text-xs text-stone-400 truncate max-w-[140px] md:max-w-none">{log.email}</p>
                           </td>
                           <td className="p-4 md:p-6 text-xs md:text-sm text-stone-600">{log.service}</td>
                           <td className="p-4 md:p-6">
@@ -540,6 +591,21 @@ const AdminDashboard = () => {
                           className="absolute inset-0 opacity-0 cursor-pointer"
                         />
                       </div>
+                      <div className="space-y-2">
+                        <input
+                          type="text"
+                          value={imageUrlInputs[`background-${bg.id}`] || ''}
+                          onChange={(e) => handleImageUrlInputChange(`background-${bg.id}`, e.target.value)}
+                          placeholder="Paste image URL (jpg/png/webp)"
+                          className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm outline-none focus:border-stone-400"
+                        />
+                        <button
+                          onClick={() => saveImageUrl('background', bg.id)}
+                          className="w-full rounded-full bg-stone-900 text-white px-4 py-2 text-xs uppercase tracking-widest hover:bg-stone-800 transition-colors"
+                        >
+                          Save URL
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -558,6 +624,21 @@ const AdminDashboard = () => {
                     </span>
                   </div>
                   
+                  <div className="mb-6 grid gap-3 sm:grid-cols-[1fr_auto]">
+                    <input
+                      type="text"
+                      value={imageUrlInputs[`gallery-${cat}`] || ''}
+                      onChange={(e) => handleImageUrlInputChange(`gallery-${cat}`, e.target.value)}
+                      placeholder="Paste gallery image URL (jpg/png/webp)"
+                      className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm outline-none focus:border-stone-400"
+                    />
+                    <button
+                      onClick={() => saveImageUrl('gallery', cat)}
+                      className="rounded-full bg-stone-900 text-white px-4 py-2 text-xs uppercase tracking-widest hover:bg-stone-800 transition-colors"
+                    >
+                      Add URL
+                    </button>
+                  </div>
                   <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 mb-8">
                     {galleryImages[cat].map((img: string, idx: number) => (
                       <div key={idx} className="relative aspect-square rounded-xl overflow-hidden group shadow-sm">
@@ -586,7 +667,7 @@ const AdminDashboard = () => {
                     </div>
                   </div>
                   <p className="text-[10px] text-stone-400 uppercase tracking-widest italic">
-                    Tip: Uploaded photos will instantly sync to your live {cat} gallery page.
+                    Tip: Use external image URLs to avoid browser storage limits. Uploaded photos are still supported for small files.
                   </p>
                 </div>
               ))}
