@@ -9,7 +9,7 @@ const AdminDashboard = () => {
   const [activeTab, setActiveTab] = useState<'log' | 'clients' | 'galleries' | 'packages' | 'reviews' | 'faqs' | 'settings'>('log');
 
   useEffect(() => {
-    if (localStorage.getItem('isAdmin') !== 'true') {
+    if (!sessionStorage.getItem('adminToken')) {
       navigate('/login', { replace: true });
     }
   }, [navigate]);

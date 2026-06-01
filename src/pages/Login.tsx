@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Lock, User, ArrowRight, ShieldCheck, Eye, EyeOff } from 'lucide-react';
-import { CLIENT_GALLERIES, MASTER_CLIENT_CODE, ADMIN_CONFIG } from '../config/clients';
+import { CLIENT_GALLERIES, MASTER_CLIENT_CODE } from '../config/clients';
 import { getLocalSiteConfig, loadSiteConfig } from '../utils/siteConfig';
 
 const Login = () => {
@@ -32,12 +32,22 @@ const Login = () => {
 
     if (!isClient) {
       // Admin Login Check
-      if (email.toLowerCase() === ADMIN_CONFIG.email.toLowerCase() && password === ADMIN_CONFIG.password) {
-        localStorage.setItem('isAdmin', 'true');
-        navigate('/admin/dashboard');
-      } else {
-        alert('Error: Invalid Admin Credentials. Make sure you are using the Admin password, not the Gallery code.');
+      const apiUrl = `${import.meta.env.VITE_API_BASE_URL || ''}/api/admin/login`;
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email.trim(), password }),
+      });
+
+      if (!response.ok) {
+        alert('Error: Invalid Admin Credentials. Please check your email and password.');
+        return;
       }
+
+      const data = await response.json();
+      sessionStorage.setItem('adminToken', data.token);
+      sessionStorage.setItem('isAdmin', 'true');
+      navigate('/admin/dashboard');
     } else {
       // Client Login Check
       const client = liveClients.find(

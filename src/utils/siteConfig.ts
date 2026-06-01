@@ -63,7 +63,11 @@ export const defaultSiteConfig = {
     weddingHero: '',
     newbornHero: '',
     familyHero: '',
-    aboutStudio: ''
+    aboutStudio: '',
+    accent1: '',
+    accent2: '',
+    accent3: '',
+    accent4: ''
   }
 };
 
@@ -134,9 +138,15 @@ export const loadSiteConfig = async () => {
 
 export const saveSiteConfig = async (config: any) => {
   try {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    const adminToken = sessionStorage.getItem('adminToken');
+    if (adminToken) {
+      headers['x-admin-token'] = adminToken;
+    }
+
     const response = await fetch(`${API_BASE_URL}/api/config`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify(config),
     });
     return response.ok;

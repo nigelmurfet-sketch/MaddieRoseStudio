@@ -1,5 +1,7 @@
 import express from 'express';
 import cors from 'cors';
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
 import nodemailer from 'nodemailer';
 import dotenv from 'dotenv';
 import fs from 'fs';
@@ -12,10 +14,50 @@ dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const app = express();
+app.set('trust proxy', 1);
 const port = process.env.SERVER_PORT || 4000;
 const configFilePath = path.join(__dirname, 'site-config.json');
 const dataDir = path.join(__dirname, 'data');
 const enquiriesFilePath = process.env.ENQUIRIES_DB_PATH || path.join(dataDir, 'enquiries.json');
+
+const allowedOrigins = process.env.CORS_ORIGIN
+  ? process.env.CORS_ORIGIN.split(',').map((origin) => origin.trim())
+  : true;
+
+const isValidEmail = (value) => typeof value === 'string' && /^\S+@\S+\.\S+$/.test(value.trim());
+const isValidUrl = (value) => {
+  if (typeof value !== 'string') return false;
+  try {
+    new URL(value.trim());
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+const ensureAdminRequest = (req, res, next) => {
+  const authHeader = req.headers.authorization;
+  const authToken = req.headers['x-admin-token'] || (typeof authHeader === 'string' && authHeader.split(' ')[1]);
+  if (authToken && authToken === process.env.ADMIN_API_KEY) {
+    return next();
+  }
+  return res.status(401).json({ ok: false, error: 'Unauthorized' });
+};
+
+const apiLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000,
+  max: 40,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+app.use(helmet());
+app.use(cors({
+  origin: allowedOrigins,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Admin-Token'],
+}));
+app.use('/api/', apiLimiter);
 
 const ensureEnquiriesFile = () => {
   if (!fs.existsSync(dataDir)) {
@@ -26,6 +68,8 @@ const ensureEnquiriesFile = () => {
     fs.writeFileSync(enquiriesFilePath, '[]', 'utf-8');
   }
 };
+
+app.use(express.json({ limit: '10mb' }));
 
 const readEnquiries = async () => {
   try {
@@ -42,9 +86,6 @@ const saveEnquiries = async (enquiries) => {
 };
 
 ensureEnquiriesFile();
-
-app.use(cors());
-app.use(express.json({ limit: '10mb' }));
 
 const defaultSiteConfig = {
   studioSettings: {
@@ -192,8 +233,13 @@ app.post('/api/send-email', async (req, res) => {
 // Inquiry endpoint: called when a visitor submits the contact form
 app.post('/api/inquiry', async (req, res) => {
   try {
-    const { name, email, message } = req.body;
-    if (!email || !message) return res.status(400).json({ ok: false, error: 'Missing required fields.' });
+    const name = typeof req.body.name === 'string' ? req.body.name.trim() : '';
+    const email = typeof req.body.email === 'string' ? req.body.email.trim() : '';
+    const message = typeof req.body.message === 'string' ? req.body.message.trim() : '';
+
+    if (!email || !message || !isValidEmail(email)) {
+      return res.status(400).json({ ok: false, error: 'Invalid inquiry payload.' });
+    }
 
     const inquiry = {
       name: name || null,
@@ -232,7 +278,21 @@ app.post('/api/inquiry', async (req, res) => {
   }
 });
 
-app.get('/api/enquiries', async (req, res) => {
+app.post('/api/admin/login', async (req, res) => {
+  const email = typeof req.body.email === 'string' ? req.body.email.trim().toLowerCase() : '';
+  const password = typeof req.body.password === 'string' ? req.body.password : '';
+
+  if (
+    email === (process.env.ADMIN_EMAIL || '').trim().toLowerCase() &&
+    password === (process.env.ADMIN_PASSWORD || '')
+  ) {
+    return res.json({ ok: true, token: process.env.ADMIN_API_KEY });
+  }
+
+  return res.status(401).json({ ok: false, error: 'Invalid credentials.' });
+});
+
+app.get('/api/enquiries', ensureAdminRequest, async (req, res) => {
   try {
     const enquiries = await readEnquiries();
     res.json({ ok: true, enquiries });
@@ -243,15 +303,20 @@ app.get('/api/enquiries', async (req, res) => {
 });
 
 // Gallery-ready notification: admin triggers this to notify a client their gallery is ready
-app.post('/api/notify-gallery', async (req, res) => {
+app.post('/api/notify-gallery', ensureAdminRequest, async (req, res) => {
   try {
-    const { email, galleryLink, galleryName } = req.body;
-    if (!email || !galleryLink) return res.status(400).json({ ok: false, error: 'Missing required fields.' });
+    const email = typeof req.body.email === 'string' ? req.body.email.trim() : '';
+    const galleryLink = typeof req.body.galleryLink === 'string' ? req.body.galleryLink.trim() : '';
+    const galleryName = typeof req.body.galleryName === 'string' ? req.body.galleryName.trim() : '';
+
+    if (!email || !galleryLink || !isValidEmail(email) || !isValidUrl(galleryLink)) {
+      return res.status(400).json({ ok: false, error: 'Invalid notification payload.' });
+    }
 
     const mail = {
       from: process.env.EMAIL_FROM || process.env.EMAIL_USER,
       to: email,
-      subject: `Your gallery${galleryName ? `: ${galleryName}` : ''} is ready to download` ,
+      subject: `Your gallery${galleryName ? `: ${galleryName}` : ''} is ready to download`,
       text: `Hi,\n\nYour gallery${galleryName ? ` (${galleryName})` : ''} is ready. You can view and download it here:\n\n${galleryLink}\n\nIf you have any questions, reply to this email.`,
     };
 
@@ -278,10 +343,15 @@ app.get('/api/config', async (req, res) => {
   res.json(config);
 });
 
-app.post('/api/config', async (req, res) => {
+app.post('/api/config', ensureAdminRequest, async (req, res) => {
   const config = req.body;
-  if (!config || typeof config !== 'object') {
+  if (!config || typeof config !== 'object' || Array.isArray(config)) {
     return res.status(400).json({ error: 'Invalid configuration payload.' });
+  }
+
+  const payload = JSON.stringify(config);
+  if (payload.length > 250000) {
+    return res.status(400).json({ error: 'Configuration payload is too large.' });
   }
 
   const success = await saveSiteConfig(config);

@@ -15,8 +15,4 @@ export const CLIENT_GALLERIES = [
   { email: 'bride@example.com', galleryName: 'Sarah & James Wedding', folder: 'wedding-1' },
 ];
 
-// Your Admin Details
-export const ADMIN_CONFIG = {
-  email: 'maddierosemac@gmail.com',
-  password: 'maddie2024' // You can ask me to change this anytime!
-};
+// Admin credentials are now handled by the backend via environment variables.
