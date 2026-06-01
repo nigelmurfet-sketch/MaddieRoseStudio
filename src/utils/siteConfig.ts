@@ -63,11 +63,7 @@ export const defaultSiteConfig = {
     weddingHero: '',
     newbornHero: '',
     familyHero: '',
-    aboutStudio: '',
-    accent1: '',
-    accent2: '',
-    accent3: '',
-    accent4: ''
+    aboutStudio: ''
   }
 };
 
