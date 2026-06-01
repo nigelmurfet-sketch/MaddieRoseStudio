@@ -23,7 +23,7 @@ const Login = () => {
       .catch(() => {});
   }, []);
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     
     // Use live configuration from the server when available
