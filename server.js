@@ -95,6 +95,34 @@ const saveEnquiries = async (enquiries) => {
 
 ensureEnquiriesFile();
 
+const clientCodesFilePath = path.join(dataDir, 'client-codes.json');
+
+const ensureClientCodesFile = () => {
+  if (!fs.existsSync(dataDir)) {
+    fs.mkdirSync(dataDir, { recursive: true });
+  }
+
+  if (!fs.existsSync(clientCodesFilePath)) {
+    fs.writeFileSync(clientCodesFilePath, '[]', 'utf-8');
+  }
+};
+
+const readClientCodes = async () => {
+  try {
+    const content = await fsPromises.readFile(clientCodesFilePath, 'utf-8');
+    return JSON.parse(content || '[]');
+  } catch (error) {
+    console.error('Failed to read client codes file:', error);
+    return [];
+  }
+};
+
+const saveClientCodes = async (codes) => {
+  await fsPromises.writeFile(clientCodesFilePath, JSON.stringify(codes, null, 2));
+};
+
+ensureClientCodesFile();
+
 const defaultSiteConfig = {
   studioSettings: {
     masterCode: 'MADDIE2024',
@@ -244,6 +272,90 @@ app.post('/api/send-email', async (req, res) => {
   } catch (error) {
     console.error('Email send error:', error);
     res.status(500).json({ ok: false, error: 'Email service error.' });
+  }
+});
+
+app.post('/api/send-client-code', async (req, res) => {
+  try {
+    const email = typeof req.body.email === 'string' ? req.body.email.trim().toLowerCase() : '';
+
+    if (!email || !isValidEmail(email)) {
+      return res.status(400).json({ ok: false, error: 'Invalid email address.' });
+    }
+
+    const config = await readSiteConfig();
+    const authorizedClients = config.clients || [];
+    const client = authorizedClients.find((c) => c.email?.toLowerCase() === email);
+
+    if (!client) {
+      return res.status(404).json({ ok: false, error: 'Email is not authorized for gallery access.' });
+    }
+
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresAt = Date.now() + 15 * 60 * 1000;
+    const clientCodes = await readClientCodes();
+    const updatedCodes = clientCodes.filter((entry) => entry.email !== email);
+    updatedCodes.push({ email, code, expiresAt });
+    await saveClientCodes(updatedCodes);
+
+    const mail = {
+      from: process.env.EMAIL_FROM || process.env.EMAIL_USER,
+      to: email,
+      subject: 'Your Maddie Rose Studio login code',
+      text: `Your login code is ${code}. It expires in 15 minutes.`,
+      html: `
+        <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif; max-width: 600px; margin: 0 auto; color: #333;">
+          <div style="text-align: center; margin-bottom: 30px;">
+            <h1 style="font-size: 28px; color: #000; margin-bottom: 10px;">Your login code</h1>
+            <p style="color: #555; font-size: 16px;">Use this code to access your private gallery.</p>
+          </div>
+          <div style="background: #f9f9f9; padding: 30px; border-radius: 12px; text-align: center; margin-bottom: 30px;">
+            <p style="font-size: 32px; letter-spacing: 6px; margin: 0; color: #111;">${code}</p>
+          </div>
+          <p style="color: #666; font-size: 14px; line-height: 1.7;">This code will expire in 15 minutes. If you did not request this, please ignore this message.</p>
+          <p style="color: #999; font-size: 12px; margin-top: 30px;">— Maddie Rose Studio</p>
+        </div>
+      `,
+    };
+
+    await transporter.sendMail(mail);
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('Send client code error:', error);
+    res.status(500).json({ ok: false, error: 'Unable to send login code.' });
+  }
+});
+
+app.post('/api/verify-client-code', async (req, res) => {
+  try {
+    const email = typeof req.body.email === 'string' ? req.body.email.trim().toLowerCase() : '';
+    const code = typeof req.body.code === 'string' ? req.body.code.trim() : '';
+
+    if (!email || !code || !isValidEmail(email)) {
+      return res.status(400).json({ ok: false, error: 'Invalid login verification payload.' });
+    }
+
+    const clientCodes = await readClientCodes();
+    const matchingCode = clientCodes.find((entry) => entry.email === email && entry.code === code);
+
+    if (!matchingCode || Date.now() > matchingCode.expiresAt) {
+      return res.status(401).json({ ok: false, error: 'Code is invalid or has expired.' });
+    }
+
+    const updatedCodes = clientCodes.filter((entry) => entry.email !== email);
+    await saveClientCodes(updatedCodes);
+
+    const config = await readSiteConfig();
+    const client = (config.clients || []).find((c) => c.email?.toLowerCase() === email);
+
+    if (!client) {
+      return res.status(404).json({ ok: false, error: 'Authorized client not found.' });
+    }
+
+    res.json({ ok: true, galleryName: client.galleryName });
+  } catch (error) {
+    console.error('Verify client code error:', error);
+    res.status(500).json({ ok: false, error: 'Unable to verify login code.' });
   }
 });
 
