@@ -364,38 +364,39 @@ const AdminDashboard = () => {
   };
 
   const sendNotificationEmail = async (client: any) => {
-    const portalCode = studioSettings.masterCode || 'MADDIE2024';
-    const studioEmail = studioSettings.email || 'maddierosemac@gmail.com';
-    const driveLink = client.driveLink?.trim();
-    const subject = driveLink
-      ? `Your ${client.galleryName} gallery is ready to view`
-      : `Your ${client.galleryName} portal is set up`;
-
-    const html = driveLink
-      ? `<p>Hi ${client.galleryName},</p><p>Your private gallery has been uploaded and is ready to view. Use the button below to open your gallery and download your photos.</p><p><a href="${driveLink}" target="_blank" style="display:inline-block;padding:12px 18px;background:#111827;color:#ffffff;border-radius:8px;text-decoration:none;">Open your gallery</a></p><p>Your gallery access code is <strong>${portalCode}</strong>. Use your email and this code at the client login page.</p><p>If you have any questions, reply to this email.</p><p>— ${studioEmail}</p>`
-      : `<p>Hi ${client.galleryName},</p><p>Your private gallery portal has been set up successfully.</p><p>I will send you the access link once the gallery is uploaded and ready.</p><p>Your gallery access code is <strong>${portalCode}</strong>. Use your email and this code at the client login page.</p><p>— ${studioEmail}</p>`;
-
-    const text = driveLink
-      ? `Hi ${client.galleryName},\n\nYour private gallery is ready. Open it here: ${driveLink}\n\nYour gallery access code is ${portalCode}. Use your email and this code at the client login page.\n\n— ${studioEmail}`
-      : `Hi ${client.galleryName},\n\nYour private gallery portal is set up. I will send you the access link once the gallery is uploaded and ready.\n\nYour gallery access code is ${portalCode}. Use your email and this code at the client login page.\n\n— ${studioEmail}`;
+    const adminToken = sessionStorage.getItem('adminToken');
+    if (!adminToken) {
+      alert('Session expired. Please log in again.');
+      return false;
+    }
 
     try {
       const apiUrl = import.meta.env.VITE_API_BASE_URL || '';
-      const response = await fetch(`${apiUrl}/api/send-email`, {
+      
+      // Use the notify-gallery endpoint with proper HTML formatting
+      const response = await fetch(`${apiUrl}/api/notify-gallery`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ to: client.email, subject, text, html }),
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Admin-Token': adminToken,
+        },
+        body: JSON.stringify({
+          email: client.email,
+          galleryName: client.galleryName,
+          galleryLink: client.driveLink || '',
+        }),
       });
 
       if (!response.ok) {
-        throw new Error('Email service returned an error.');
+        const error = await response.json();
+        throw new Error(error.error || 'Email service returned an error.');
       }
 
-      alert(`Notification email sent to ${client.email}`);
+      alert(`Gallery notification sent to ${client.email}`);
       return true;
     } catch (error) {
       console.error('Email send failed:', error);
-      alert('Unable to send email. Please check your server configuration and try again.');
+      alert(`Unable to send email: ${error instanceof Error ? error.message : 'Unknown error'}`);
       return false;
     }
   };

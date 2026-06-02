@@ -206,6 +206,15 @@ if (process.env.EMAIL_SERVICE) {
 
 const transporter = nodemailer.createTransport(transporterConfig);
 
+// Verify email configuration
+transporter.verify((error, success) => {
+  if (error) {
+    console.error('Email transporter error:', error);
+  } else {
+    console.log('Email service ready');
+  }
+});
+
 app.post('/api/send-email', async (req, res) => {
   try {
     const { to, subject, text, html } = req.body;
@@ -258,6 +267,16 @@ app.post('/api/inquiry', async (req, res) => {
       to: process.env.STUDIO_EMAIL || process.env.EMAIL_USER,
       subject: `New website inquiry from ${name || 'visitor'}`,
       text: `Name: ${name || '—'}\nEmail: ${email}\n\nMessage:\n${message}`,
+      html: `
+        <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif; max-width: 600px; margin: 0 auto; color: #333;">
+          <h2 style="color: #000; margin-bottom: 20px;">New Website Inquiry</h2>
+          <p><strong>Name:</strong> ${name || '—'}</p>
+          <p><strong>Email:</strong> <a href="mailto:${email}">${email}</a></p>
+          <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;">
+          <h3 style="color: #555; margin-top: 20px;">Message:</h3>
+          <p style="white-space: pre-wrap; line-height: 1.6;">${message}</p>
+        </div>
+      `,
     };
 
     // Auto-reply to client
@@ -266,10 +285,31 @@ app.post('/api/inquiry', async (req, res) => {
       to: email,
       subject: `Thanks for contacting Maddie Rose Studio`,
       text: `Hi ${name || 'there'},\n\nThanks for getting in touch — we received your message and will be in contact shortly.\n\nBest,\nMaddie Rose Studio`,
+      html: `
+        <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif; max-width: 600px; margin: 0 auto; color: #333; text-align: center;">
+          <div style="margin-bottom: 40px;">
+            <h1 style="font-size: 28px; color: #000; margin: 20px 0;">Thank You</h1>
+            <p style="color: #666; font-size: 16px;">Hi ${name || 'there'},</p>
+          </div>
+          <div style="background: #f9f9f9; padding: 30px; border-radius: 8px; margin-bottom: 30px;">
+            <p style="color: #555; font-size: 16px; line-height: 1.6;">Thanks for getting in touch! We received your message and will be in contact within 24-48 hours.</p>
+          </div>
+          <p style="color: #999; font-size: 14px;">— Maddie Rose Studio</p>
+        </div>
+      `,
     };
 
-    await transporter.sendMail(studioMail);
-    await transporter.sendMail(clientMail);
+    try {
+      await transporter.sendMail(studioMail);
+    } catch (error) {
+      console.error('Failed to send studio notification:', error);
+    }
+
+    try {
+      await transporter.sendMail(clientMail);
+    } catch (error) {
+      console.error('Failed to send client confirmation:', error);
+    }
 
     res.json({ ok: true });
   } catch (error) {
@@ -318,6 +358,23 @@ app.post('/api/notify-gallery', ensureAdminRequest, async (req, res) => {
       to: email,
       subject: `Your gallery${galleryName ? `: ${galleryName}` : ''} is ready to download`,
       text: `Hi,\n\nYour gallery${galleryName ? ` (${galleryName})` : ''} is ready. You can view and download it here:\n\n${galleryLink}\n\nIf you have any questions, reply to this email.`,
+      html: `
+        <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif; max-width: 600px; margin: 0 auto; color: #333;">
+          <div style="text-align: center; margin-bottom: 40px;">
+            <h1 style="font-size: 28px; color: #000; margin: 20px 0;">✨ Your Gallery is Ready!</h1>
+          </div>
+          <div style="background: #f9f9f9; padding: 30px; border-radius: 8px; margin-bottom: 30px;">
+            <p style="color: #555; font-size: 16px; line-height: 1.6;">Hi,</p>
+            <p style="color: #555; font-size: 16px; line-height: 1.6;">Your${galleryName ? ` ${galleryName}` : ''} gallery is ready to view and download. Click the link below to access your photos:</p>
+            <div style="text-align: center; margin: 30px 0;">
+              <a href="${galleryLink}" style="background: #000; color: #fff; padding: 14px 32px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: 600;">View Gallery</a>
+            </div>
+            <p style="color: #999; font-size: 14px;">Or copy this link: <a href="${galleryLink}" style="color: #666; word-break: break-all;">${galleryLink}</a></p>
+          </div>
+          <p style="color: #999; font-size: 14px; text-align: center;">Questions? Reply to this email anytime. We'd love to hear your thoughts!</p>
+          <p style="color: #ccc; font-size: 12px; text-align: center; margin-top: 40px;">— Maddie Rose Studio</p>
+        </div>
+      `,
     };
 
     // Notify studio/admin as a record
@@ -328,8 +385,18 @@ app.post('/api/notify-gallery', ensureAdminRequest, async (req, res) => {
       text: `Gallery: ${galleryName || '—'}\nRecipient: ${email}\nLink: ${galleryLink}`,
     };
 
-    await transporter.sendMail(mail);
-    await transporter.sendMail(adminNotify);
+    try {
+      await transporter.sendMail(mail);
+    } catch (error) {
+      console.error('Failed to send gallery email:', error);
+      return res.status(500).json({ ok: false, error: 'Failed to send gallery notification to client.' });
+    }
+
+    try {
+      await transporter.sendMail(adminNotify);
+    } catch (error) {
+      console.error('Failed to send admin notification:', error);
+    }
 
     res.json({ ok: true });
   } catch (error) {

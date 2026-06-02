@@ -26,20 +26,28 @@ const Contact = () => {
   const studioLocation = siteConfig.studioSettings.location;
   const studioArea = siteConfig.studioSettings.serviceArea;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    // Save to local log for Maddie's Admin Dashboard
-    const inquiries = JSON.parse(localStorage.getItem('inquiries') || '[]');
-    inquiries.push({
-      ...formData,
-      id: Date.now(),
-      status: 'New',
-      type: 'Site Inquiry'
-    });
-    localStorage.setItem('inquiries', JSON.stringify(inquiries));
-    
-    setIsSuccess(true);
+    try {
+      const response = await fetch('/api/inquiry', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: formData.name,
+          email: formData.email,
+          message: `Service: ${formData.service}\nDate: ${formData.date || 'N/A'}\n${formData.coupon ? `Coupon: ${formData.coupon}\n` : ''}\nMessage:\n${formData.message}`
+        })
+      });
+
+      if (response.ok) {
+        setIsSuccess(true);
+      } else {
+        console.error('Inquiry submission failed');
+      }
+    } catch (error) {
+      console.error('Error submitting inquiry:', error);
+    }
   };
 
   return (
