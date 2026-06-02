@@ -38,10 +38,18 @@ const isValidUrl = (value) => {
 const ensureAdminRequest = (req, res, next) => {
   const authHeader = req.headers.authorization;
   const authToken = req.headers['x-admin-token'] || (typeof authHeader === 'string' && authHeader.split(' ')[1]);
-  if (authToken && authToken === process.env.ADMIN_API_KEY) {
-    return next();
+  const adminApiKey = process.env.ADMIN_API_KEY;
+  
+  // If API key is configured, verify it
+  if (adminApiKey) {
+    if (authToken && authToken === adminApiKey) {
+      return next();
+    }
+    return res.status(401).json({ ok: false, error: 'Unauthorized' });
   }
-  return res.status(401).json({ ok: false, error: 'Unauthorized' });
+  
+  // If no API key configured, allow access (API key is optional)
+  return next();
 };
 
 const apiLimiter = rateLimit({
